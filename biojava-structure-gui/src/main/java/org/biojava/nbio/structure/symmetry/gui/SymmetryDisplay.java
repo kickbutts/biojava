@@ -21,29 +21,34 @@
 package org.biojava.nbio.structure.symmetry.gui;
 
 import java.awt.event.KeyEvent;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
-import javax.vecmath.Matrix4d;
 
 import org.biojava.nbio.structure.Atom;
+import org.biojava.nbio.structure.Group;
 import org.biojava.nbio.structure.StructureException;
 import org.biojava.nbio.structure.StructureTools;
+import org.biojava.nbio.structure.align.gui.MultipleAlignmentJmolDisplay;
 import org.biojava.nbio.structure.align.gui.StructureAlignmentDisplay;
 import org.biojava.nbio.structure.align.gui.jmol.AbstractAlignmentJmol;
-import org.biojava.nbio.structure.align.gui.MultipleAlignmentJmolDisplay;
 import org.biojava.nbio.structure.align.gui.jmol.MultipleAlignmentJmol;
 import org.biojava.nbio.structure.align.multiple.MultipleAlignment;
 import org.biojava.nbio.structure.align.util.RotationAxis;
-import org.biojava.nbio.structure.symmetry.core.AxisAligner;
+import org.biojava.nbio.structure.symmetry.axis.AxisAligner;
 import org.biojava.nbio.structure.symmetry.core.QuatSymmetryResults;
 import org.biojava.nbio.structure.symmetry.internal.CeSymmResult;
+import org.biojava.nbio.structure.symmetry.internal.SymmetryAxes;
+import org.biojava.nbio.structure.symmetry.internal.SymmetryAxes.Axis;
 import org.biojava.nbio.structure.symmetry.jmolScript.JmolSymmetryScriptGenerator;
 import org.biojava.nbio.structure.symmetry.jmolScript.JmolSymmetryScriptGeneratorPointGroup;
 import org.biojava.nbio.structure.symmetry.utils.SymmetryTools;
-import org.jmol.util.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Class that provides visualizations methods for symmetry alignments. Call the
@@ -54,6 +59,9 @@ import org.jmol.util.Logger;
  *
  */
 public class SymmetryDisplay {
+
+	private static final Logger logger = LoggerFactory
+			.getLogger(SymmetryDisplay.class);
 
 	/**
 	 * Displays a multiple alignment of the symmetry repeats.
@@ -66,7 +74,8 @@ public class SymmetryDisplay {
 			throws StructureException {
 
 		MultipleAlignment repeats = SymmetryTools.toRepeatsAlignment(symm);
-		MultipleAlignmentJmol jmol = MultipleAlignmentJmolDisplay.display(repeats);
+		MultipleAlignmentJmol jmol = MultipleAlignmentJmolDisplay
+				.display(repeats);
 		jmol.setTitle(getSymmTitle(symm));
 		return jmol;
 	}
@@ -103,19 +112,32 @@ public class SymmetryDisplay {
 			throws StructureException {
 
 		if (symmResult.isSignificant() && symmResult.isRefined()) {
-			// Show the structure colored by repeat
+			// Show the structure colored by repeat (do not rotate)
 			MultipleAlignment msa = symmResult.getMultipleAlignment();
 			List<Atom[]> atoms = msa.getAtomArrays();
+
+			// Add non polymer protein groups
+			Atom[] allAtoms = atoms.get(0);
+			List<Group> hetatms = StructureTools.getUnalignedGroups(allAtoms);
+			allAtoms = Arrays
+					.copyOf(allAtoms, allAtoms.length + hetatms.size());
+			for (int h = 0; h < hetatms.size(); h++) {
+				int index = (allAtoms.length - hetatms.size()) + h;
+				allAtoms[index] = hetatms.get(h).getAtom(0);
+			}
+			for (int s = 0; s < msa.size(); s++)
+				atoms.set(s, allAtoms);
+
 			MultipleAlignmentJmol jmol = new MultipleAlignmentJmol(msa, atoms);
 			jmol.setTitle(jmol.getStructure().getPDBHeader().getTitle());
 			addSymmetryMenu(jmol, symmResult);
 			jmol.evalString(printSymmetryGroup(symmResult));
-			jmol.evalString(printSymmetryAxes(symmResult, false));
+			jmol.evalString(printSymmetryAxes(symmResult));
 			jmol.setTitle(getSymmTitle(symmResult));
 			return jmol;
 		} else {
 			// Show the optimal self-alignment
-			Logger.info("Showing optimal self-alignment");
+			logger.info("Showing optimal self-alignment");
 			Atom[] cloned = StructureTools
 					.cloneAtomArray(symmResult.getAtoms());
 			AbstractAlignmentJmol jmol = StructureAlignmentDisplay.display(
@@ -123,7 +145,6 @@ public class SymmetryDisplay {
 					cloned);
 			RotationAxis axis = new RotationAxis(symmResult.getSelfAlignment());
 			jmol.evalString(axis.getJmolScript(symmResult.getAtoms()));
-			jmol.setTitle(getSymmTitle(symmResult));
 			return jmol;
 		}
 	}
@@ -178,30 +199,56 @@ public class SymmetryDisplay {
 	/**
 	 * Generates a String that displays the symmetry axes of a structure.
 	 *
-	 * @param msa
-	 * @param axes
-	 * @param elementary
-	 *            only print elementary axes if true
+	 * @param symm
+	 *            CeSymmResult
 	 * @return
+	 * @throws StructureException
 	 */
-	public static String printSymmetryAxes(CeSymmResult symm, boolean elementary) {
+	public static String printSymmetryAxes(CeSymmResult symm)
+			throws StructureException {
+		return printSymmetryAxes(symm,true);
+	}
+	
+	/**
+	 * Generates a String that displays the symmetry axes of a structure.
+	 *
+	 * @param symm
+	 *            CeSymmResult
+	 * @param allAxes Indicates whether all axes should be displayed or just
+	 *  the elemenatary ones
+	 * @return
+	 * @throws StructureException
+	 */
+	public static String printSymmetryAxes(CeSymmResult symm,boolean allAxes)
+			throws StructureException {
 
 		int id = 0;
 		String script = "";
-		Atom[] atoms = symm.getAtoms();
+		SymmetryAxes axes = symm.getAxes();
+		List<Atom[]> repeats = SymmetryTools.toRepeatsAlignment(symm)
+				.getAtomArrays();
 
-		List<Matrix4d> symmAxes = null;
-		if (elementary) {
-			symmAxes = symm.getAxes().getElementaryAxes();
+		List<Axis> symmAxes;
+		if(allAxes) {
+			symmAxes = axes.getSymmetryAxes();
 		} else {
-			symmAxes = symm.getAxes().getSymmetryAxes();
+			symmAxes= axes.getElementaryAxesObjects();
 		}
+		for (Axis a : symmAxes) {
+			RotationAxis rot = a.getRotationAxis();
+			List<List<Integer>> cyclicForm = axes.getRepeatsCyclicForm(a);
+			List<Atom> repAtoms = new ArrayList<Atom>();
+			for(List<Integer> cycle : cyclicForm) {
+				for(Integer repeat : cycle) {
+					repAtoms.addAll(Arrays.asList(repeats.get(repeat)));
+				}
+			}
 
-		for (Matrix4d axis : symmAxes) {
-			RotationAxis rot = new RotationAxis(axis);
-			script += rot.getJmolScript(atoms, id);
+			script += rot.getJmolScript(
+					repAtoms.toArray(new Atom[repAtoms.size()]), id);
 			id++;
 		}
+
 		return script;
 	}
 
@@ -216,9 +263,11 @@ public class SymmetryDisplay {
 	 * @return
 	 * @throws StructureException
 	 */
-	public static String printSymmetryGroup(CeSymmResult symm) throws StructureException {
+	public static String printSymmetryGroup(CeSymmResult symm)
+			throws StructureException {
 
-		QuatSymmetryResults gSymmetry = SymmetryTools.getQuaternarySymmetry(symm);
+		QuatSymmetryResults gSymmetry = SymmetryTools
+				.getQuaternarySymmetry(symm);
 
 		AxisAligner axes = AxisAligner.getInstance(gSymmetry);
 

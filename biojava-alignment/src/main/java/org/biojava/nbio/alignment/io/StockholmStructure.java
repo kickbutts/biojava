@@ -244,7 +244,7 @@ public class StockholmStructure {
 	 */
 	public List<AbstractSequence<? extends AbstractCompound>> getBioSequences(boolean ignoreCase,
 			String forcedSequenceType) {
-		if (forcedSequenceType != null && !(forcedSequenceType.equals(PFAM) | forcedSequenceType.equals(RFAM))) {
+		if (forcedSequenceType != null && !(forcedSequenceType.equals(PFAM) || forcedSequenceType.equals(RFAM))) {
 			throw new IllegalArgumentException("Illegal Argument " + forcedSequenceType);
 		}
 		List<AbstractSequence<? extends AbstractCompound>> seqs = new ArrayList<AbstractSequence<? extends AbstractCompound>>();
@@ -301,7 +301,7 @@ public class StockholmStructure {
 	private String[] splitSeqName(String sequenceName) {
 		String[] result = new String[3];
 
-		String[] barSplit = sequenceName.toString().split("/");
+		String[] barSplit = sequenceName.split("/");
 		if (barSplit.length == 2) {
 			result[0] = barSplit[0];
 			String[] positions = barSplit[1].split("-");

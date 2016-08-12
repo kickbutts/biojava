@@ -22,9 +22,11 @@ package org.biojava.nbio.structure;
 
 import org.biojava.nbio.structure.align.util.AtomCache;
 import org.biojava.nbio.structure.io.FileParsingParameters;
+import org.biojava.nbio.structure.io.mmcif.ChemCompGroupFactory;
 import org.biojava.nbio.structure.io.mmcif.chem.PolymerType;
 import org.biojava.nbio.structure.io.mmcif.chem.ResidueType;
 import org.biojava.nbio.structure.io.mmcif.model.ChemComp;
+import org.biojava.nbio.structure.io.mmcif.model.ChemCompBond;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -38,14 +40,11 @@ public class TestAltLocs {
 	@Test
 	public void testAltLocParsing() throws StructureException, IOException{
 
-
 		AtomCache cache = new AtomCache();
+		cache.setUseMmCif(true);
 		Structure s = cache.getStructure("2CI1");
 
-		//System.out.println(s);
-
-		Chain a = s.getChainByPDB("A");
-		//System.out.println(a);
+		Chain a = s.getPolyChainByPDB("A");
 
 		int groupCount = 0;
 		List<Group> groups = a.getAtomGroups();
@@ -78,7 +77,7 @@ public class TestAltLocs {
 
 
 		ResidueNumber resNum = ResidueNumber.fromString("273");
-		resNum.setChainId("A");
+		resNum.setChainName("A");
 
 		Group g = a.getGroupByPDB(resNum);
 
@@ -94,7 +93,12 @@ public class TestAltLocs {
 
 		assertEquals(altLocG.getPDBName(),"K1R");
 
-		assertEquals(276,groupCount);
+		assertEquals(275,groupCount);
+
+		// citric acid is now in its own chain
+
+		Chain b = s.getChain("B");
+		assertTrue(b.getAtomGroups().size() == 1);
 
 
 		ResidueNumber resNum2 = ResidueNumber.fromString("265");
@@ -111,7 +115,7 @@ public class TestAltLocs {
 		AtomCache cache = new AtomCache();
 		Structure s = cache.getStructure("2W72");
 
-		Chain a = s.getChainByPDB("A");
+		Chain a = s.getPolyChainByPDB("A");
 
 		Group val1 = a.getGroupByPDB(ResidueNumber.fromString("1"));
 		Atom ca1 = val1.getAtom("CA");
@@ -134,14 +138,14 @@ public class TestAltLocs {
 		AtomCache cache = new AtomCache();
 		Structure s = cache.getStructure("1U7F");
 
-		Chain c = s.getChainByPDB("B");
+		Chain c = s.getPolyChainByPDB("B");
 
 		Group g = c.getGroupByPDB(ResidueNumber.fromString("314"));
 		//System.out.println("== original group ==");
-		ensureAllAtomsSameAltCode(g);
+		ensureAllAtomsSameAltCode(g, g);
 		//System.out.println("== alternate group ==");
 		for ( Group altGroup : g.getAltLocs() ) {
-			ensureAllAtomsSameAltCode(altGroup);
+			ensureAllAtomsSameAltCode(altGroup, g);
 		}
 
 
@@ -153,23 +157,42 @@ public class TestAltLocs {
 		AtomCache cache = new AtomCache();
 		Structure structure = cache.getStructure("1JXX");
 
-		Chain chain = structure.getChain(0); // 1JXX example
+		Chain chain = structure.getChainByIndex(0); // 1JXX example
 
 		Group g = chain.getAtomGroups().get(1); // 1JXX  THR A   2
-		ensureAllAtomsSameAltCode(g);
+		ensureAllAtomsSameAltCode(g, g);
 		//System.out.println("== alternate group ==");
 		for ( Group altGroup : g.getAltLocs() ) {
-			ensureAllAtomsSameAltCode(altGroup);
+			ensureAllAtomsSameAltCode(altGroup, g);
 		}
 
 
 	}
 
-	private void ensureAllAtomsSameAltCode(Group g) {
+	
+	/**
+	 * Test to check that all atoms have the same alt code (unless they're in the main group)
+	 * @param groupInputAltLocGroup The input alt loc group
+	 */
+	private void ensureAllAtomsSameAltCode(Group groupInputAltLocGroup, Group inputMainGroup) {
 
+		// If they're the exact same group just return
+		if (groupInputAltLocGroup == inputMainGroup) {
+			return;
+		}
+		
+		// Check that the atom group is the same size as the alt loc group (as long as it's not a case of microheterogenity
+		if (groupInputAltLocGroup.getPDBName().equals(inputMainGroup.getPDBName())){
+			assertEquals(groupInputAltLocGroup.getAtoms().size(), inputMainGroup.getAtoms().size());
+		}
 		Character defaultAltLoc = null;
-		for (Atom atom : g.getAtoms()) {
-
+		for (Atom atom : groupInputAltLocGroup.getAtoms()) {
+			
+			// If this is in the original atom group just carry on
+			if (inputMainGroup.getAtoms().contains(atom)) {
+				continue;
+			}
+			
 			if ( defaultAltLoc == null) {
 				defaultAltLoc = atom.getAltLoc();
 
@@ -187,7 +210,7 @@ public class TestAltLocs {
 
 		Structure s = StructureIO.getStructure("1AAC");
 
-		Chain a = s.getChainByPDB("A");
+		Chain a = s.getPolyChainByPDB("A");
 
 		Group g = a.getGroupByPDB( ResidueNumber.fromString("27"));
 		testCBAtomInMainGroup(g);
@@ -196,7 +219,7 @@ public class TestAltLocs {
 		cache.setUseMmCif(true);
 
 		Structure s1 = cache.getStructure("1AAC");
-		Chain a1 = s1.getChainByPDB("A");
+		Chain a1 = s1.getPolyChainByPDB("A");
 
 		Group g1 = a1.getGroupByPDB( ResidueNumber.fromString("27"));
 
@@ -262,7 +285,7 @@ public class TestAltLocs {
 			for (Group g: c.getAtomGroups()){
 
 				for (Group altLocGroup:g.getAltLocs()) {
-					ensureAllAtomsSameAltCode(altLocGroup);
+					ensureAllAtomsSameAltCode(altLocGroup, g);
 
 					for (Atom a:altLocGroup.getAtoms()) {
 						assertNotNull(a.getGroup());
@@ -295,11 +318,112 @@ public class TestAltLocs {
 
 		assertTrue(ca.length == caList.size());
 
-
 	}
 
 
+	/**
+	 * A test that all alternate location groups have the same number of atoms as the main group
+	 * @throws StructureException 
+	 * @throws IOException 
+	 */
+	@Test
+	public void testAllAltLocsSameAtomsMainGroup() throws IOException, StructureException {
+		doTestAllAltLocsSamAtomsMainGroup("3nu4");
+		doTestAllAltLocsSamAtomsMainGroup("3nvd");
+		doTestAllAltLocsSamAtomsMainGroup("4txr");
+		doTestAllAltLocsSamAtomsMainGroup("3nvd");
+		doTestAllAltLocsSamAtomsMainGroup("4cup");
+	}
+	
+	/**
+	 * Actually perform the test to see all alt locs are the same size as the main group
+	 * @throws StructureException 
+	 * @throws IOException  
+	 * 
+	 */
+	private void doTestAllAltLocsSamAtomsMainGroup(String pdbId) throws IOException, StructureException {
+		AtomCache cache = new AtomCache();
+		FileParsingParameters params = new FileParsingParameters();
+		params.setAlignSeqRes(true);
+		params.setCreateAtomBonds(true);
+		cache.setFileParsingParams(params);
+		StructureIO.setAtomCache(cache);
+		Structure structure = StructureIO.getStructure(pdbId);
+		// Loop through the atoms
+		for ( Chain c: structure.getChains()){
+			for (Group g: c.getAtomGroups()){
 
+				for (Group altLocGroup:g.getAltLocs()) {
+					assertEquals(altLocGroup.size(), g.size());
+				}
+			}
+		}
+	}
+	
+	/**
+	 * A test that adding bonds to atoms between groups - doesn't change the size of the groups
+	 * @throws StructureException 
+	 * @throws IOException 
+	 */
+	@Test
+	public void testAddBondsDoesntChangeGroups() throws IOException, StructureException {
+		AtomCache cache = new AtomCache();
+		FileParsingParameters params = new FileParsingParameters();
+		params.setAlignSeqRes(true);
+		params.setCreateAtomBonds(true);
+		cache.setFileParsingParams(params);
+		StructureIO.setAtomCache(cache);
+		Structure structure = StructureIO.getStructure("4CUP");
+		// Loop through and find 
+		for (Chain chain : structure.getChains()) {
+			List<Group> groups = chain.getAtomGroups();
+
+			for (Group mainGroup : groups) {
+				// atoms with no residue number don't have atom information
+				if (mainGroup.getResidueNumber() == null) {
+					continue;
+				}
+				if (mainGroup.getAltLocs().isEmpty()) {
+					continue;
+				}
+				int oldSize = mainGroup.size();
+				// Now add support for altLocGroup
+				List<Atom> atomsList = new ArrayList<>(mainGroup.getAtoms());
+				for(Group altLocOne: mainGroup.getAltLocs()){
+					for(Atom atomAltLocOne: altLocOne.getAtoms()){
+						atomsList.add(atomAltLocOne);
+					}
+				}
+				// Get the chem copm
+				ChemComp aminoChemComp = ChemCompGroupFactory.getChemComp(mainGroup
+						.getPDBName());
+				// Now iterate through this list
+				for(Atom atomA : atomsList){
+
+					for (ChemCompBond chemCompBond : aminoChemComp.getBonds()) {
+
+						//
+						if(chemCompBond.getAtom_id_1().equals(atomA.getName())){
+							// Get the other atom in the group
+							for(Atom atomB : atomsList) { 
+								if(chemCompBond.getAtom_id_2().equals(atomB.getName())){
+									int bondOrder = chemCompBond.getNumericalBondOrder();
+									new BondImpl(atomA, atomB, bondOrder);
+								}
+							}
+						}
+					}
+				}
+				assertEquals(oldSize, mainGroup.size());
+			}
+		}
+	}
+
+	/**
+	 * A test to see that alternate location bonds are being generated
+	 * @throws IOException
+	 * @throws StructureException
+	 */
 	@Test
 	public void test4CUPBonds() throws IOException, StructureException{
 
@@ -320,21 +444,18 @@ public class TestAltLocs {
 
 		Atom[] ca = StructureTools.getAtomCAArray(structure);
 
-		//System.out.println(structure.getPdbId() + " has # CA atoms: " + ca.length);
 
 		List<Atom> caList = new ArrayList<Atom>();
 		for ( Chain c: structure.getChains()){
 			for (Group g: c.getAtomGroups()){
 
 				for (Group altLocGroup:g.getAltLocs()) {
-					ensureAllAtomsSameAltCode(altLocGroup);
-					List<Atom> theseAtoms = new ArrayList<Atom>();
+					ensureAllAtomsSameAltCode(altLocGroup, g);
 					for (Atom a:altLocGroup.getAtoms()) {
-						theseAtoms.add(a);
-					}
-					for (Atom a:altLocGroup.getAtoms()) {
-						// Check the bonds are all part of this altLoc group
-						assertNotEquals(0, a.getBonds().size());
+						// Check the atomsall have bonds 
+						assertNotEquals(a.getBonds(),null);
+						assertNotEquals(a.getBonds().size(),0);
+
 					}
 				}
 
@@ -391,7 +512,7 @@ public class TestAltLocs {
 			for (Group g: c.getAtomGroups()){
 
 				for (Group altLocGroup:g.getAltLocs()) {
-					ensureAllAtomsSameAltCode(altLocGroup);
+					ensureAllAtomsSameAltCode(altLocGroup, g);
 
 					for (Atom a:altLocGroup.getAtoms()) {
 						assertNotNull(a.getGroup());
@@ -457,7 +578,7 @@ public class TestAltLocs {
 			for (Group g: c.getSeqResGroups()){
 
 				for (Group altLocGroup:g.getAltLocs()) {
-					ensureAllAtomsSameAltCode(altLocGroup);
+					ensureAllAtomsSameAltCode(altLocGroup, g);
 				}
 
 				List<Atom> atoms = g.getAtoms();

@@ -20,7 +20,20 @@
  */
 package org.biojava.nbio.structure.contact;
 
-import org.biojava.nbio.structure.*;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+
+import org.biojava.nbio.structure.Atom;
+import org.biojava.nbio.structure.Chain;
+import org.biojava.nbio.structure.Element;
+import org.biojava.nbio.structure.EntityInfo;
+import org.biojava.nbio.structure.Group;
+import org.biojava.nbio.structure.GroupType;
+import org.biojava.nbio.structure.ResidueNumber;
+import org.biojava.nbio.structure.Structure;
 import org.biojava.nbio.structure.asa.AsaCalculator;
 import org.biojava.nbio.structure.asa.GroupAsa;
 import org.biojava.nbio.structure.io.FileConvert;
@@ -28,16 +41,11 @@ import org.biojava.nbio.structure.io.FileParsingParameters;
 import org.biojava.nbio.structure.io.mmcif.MMCIFFileTools;
 import org.biojava.nbio.structure.io.mmcif.SimpleMMcifParser;
 import org.biojava.nbio.structure.io.mmcif.chem.PolymerType;
+import org.biojava.nbio.structure.io.mmcif.model.AtomSite;
 import org.biojava.nbio.structure.io.mmcif.model.ChemComp;
 import org.biojava.nbio.structure.xtal.CrystalTransform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
 
 
 /**
@@ -372,14 +380,14 @@ public class StructureInterface implements Serializable, Comparable<StructureInt
 	 * @return true if homomeric or if either of the entities is unknonw (null Compounds), false otherwise
 	 */
 	public boolean isHomomeric() {
-		Compound first = getParentChains().getFirst().getCompound();
-		Compound second = getParentChains().getSecond().getCompound();
+		EntityInfo first = getParentChains().getFirst().getEntityInfo();
+		EntityInfo second = getParentChains().getSecond().getEntityInfo();
 		if (first==null || second==null) {
 			logger.warn("Some compound of interface {} is null, can't determine whether it is homo/heteromeric. Consider it homomeric", getId());
 			return true;
 		}
 		return
-			first.getRepresentative().getChainID().equals(second.getRepresentative().getChainID());
+			first.getRepresentative().getId().equals(second.getRepresentative().getId());
 	}
 
 	/**
@@ -562,7 +570,7 @@ public class StructureInterface implements Serializable, Comparable<StructureInt
 	 * The two sides of the given StructureInterface need to match this StructureInterface
 	 * in the sense that they must come from the same Compound (Entity), i.e.
 	 * their residue numbers need to align with 100% identity, except for unobserved
-	 * density residues. The SEQRES indices obtained through {@link Compound#getAlignedResIndex(Group, Chain)} are
+	 * density residues. The SEQRES indices obtained through {@link EntityInfo#getAlignedResIndex(Group, Chain)} are
 	 * used to match residues, thus if no SEQRES is present or if {@link FileParsingParameters#setAlignSeqRes(boolean)}
 	 * is not used, this calculation is not guaranteed to work properly.
 	 * @param other
@@ -586,16 +594,16 @@ public class StructureInterface implements Serializable, Comparable<StructureInt
 		Pair<Chain> thisChains = getParentChains();
 		Pair<Chain> otherChains = other.getParentChains();
 
-		if (thisChains.getFirst().getCompound() == null || thisChains.getSecond().getCompound() == null ||
-			otherChains.getFirst().getCompound() == null || otherChains.getSecond().getCompound() == null ) {
+		if (thisChains.getFirst().getEntityInfo() == null || thisChains.getSecond().getEntityInfo() == null ||
+			otherChains.getFirst().getEntityInfo() == null || otherChains.getSecond().getEntityInfo() == null ) {
 			// this happens in cases like 2uub
 			logger.warn("Found chains with null compounds while comparing interfaces {} and {}. Contact overlap score for them will be 0.",
 					this.getId(), other.getId());
 			return 0;
 		}
 
-		Pair<Compound> thisCompounds = new Pair<Compound>(thisChains.getFirst().getCompound(), thisChains.getSecond().getCompound());
-		Pair<Compound> otherCompounds = new Pair<Compound>(otherChains.getFirst().getCompound(), otherChains.getSecond().getCompound());
+		Pair<EntityInfo> thisCompounds = new Pair<EntityInfo>(thisChains.getFirst().getEntityInfo(), thisChains.getSecond().getEntityInfo());
+		Pair<EntityInfo> otherCompounds = new Pair<EntityInfo>(otherChains.getFirst().getEntityInfo(), otherChains.getSecond().getEntityInfo());
 
 		if ( (  (thisCompounds.getFirst() == otherCompounds.getFirst()) &&
 				(thisCompounds.getSecond() == otherCompounds.getSecond())   )  ||
@@ -628,8 +636,8 @@ public class StructureInterface implements Serializable, Comparable<StructureInt
 			return (2.0*common)/(thisContacts.size()+otherContacts.size());
 		} else {
 			logger.debug("Chain pairs {},{} and {},{} belong to different compound pairs, contact overlap score will be 0 ",
-					thisChains.getFirst().getChainID(),thisChains.getSecond().getChainID(),
-					otherChains.getFirst().getChainID(),otherChains.getSecond().getChainID());
+					thisChains.getFirst().getId(),thisChains.getSecond().getId(),
+					otherChains.getFirst().getId(),otherChains.getSecond().getId());
 			return 0.0;
 		}
 	}
@@ -673,13 +681,13 @@ public class StructureInterface implements Serializable, Comparable<StructureInt
 	 * Finds the parent compounds by looking up the references of first atom of each side of this interface
 	 * @return
 	 */
-	public Pair<Compound> getParentCompounds() {
+	public Pair<EntityInfo> getParentCompounds() {
 		Pair<Chain> chains = getParentChains();
 		if (chains == null) {
 			logger.warn("Could not find parents chains, compounds will be null");
 			return null;
 		}
-		return new Pair<Compound>(chains.getFirst().getCompound(), chains.getSecond().getCompound());
+		return new Pair<EntityInfo>(chains.getFirst().getEntityInfo(), chains.getSecond().getEntityInfo());
 	}
 
 	private Structure getParentStructure() {
@@ -747,13 +755,13 @@ public class StructureInterface implements Serializable, Comparable<StructureInt
 			molecId2 = molecId2 + "_" +getTransforms().getSecond().getTransformId();
 		}
 
-		sb.append(SimpleMMcifParser.MMCIF_TOP_HEADER+"BioJava_interface_"+getId()+System.getProperty("line.separator"));
+		sb.append(SimpleMMcifParser.MMCIF_TOP_HEADER).append("BioJava_interface_").append(getId()).append(System.getProperty("line.separator"));
 
 		sb.append(FileConvert.getAtomSiteHeader());
 
 		// we reassign atom ids if sym related (otherwise atom ids would be duplicated and some molecular viewers can't cope with that)
 		int atomId = 1;
-		List<Object> atomSites = new ArrayList<Object>();
+		List<AtomSite> atomSites = new ArrayList<>();
 		for (Atom atom:this.molecules.getFirst()) {
 			if (isSymRelated()) {
 				atomSites.add(MMCIFFileTools.convertAtomToAtomSite(atom, 1, molecId1, molecId1, atomId));
@@ -771,7 +779,7 @@ public class StructureInterface implements Serializable, Comparable<StructureInt
 			atomId++;
 		}
 
-		sb.append(MMCIFFileTools.toMMCIF(atomSites));
+		sb.append(MMCIFFileTools.toMMCIF(atomSites,AtomSite.class));
 
 		return sb.toString();
 	}

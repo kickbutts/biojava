@@ -31,13 +31,17 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLConnection;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.GZIPOutputStream;
 
 import org.biojava.nbio.core.util.InputStreamProvider;
-import org.biojava.nbio.structure.align.util.HTTPConnectionTools;
+import org.biojava.nbio.structure.align.util.URLConnectionTools;
 import org.biojava.nbio.structure.align.util.UserConfiguration;
 import org.biojava.nbio.structure.io.mmcif.model.ChemComp;
 import org.slf4j.Logger;
@@ -64,7 +68,14 @@ public class DownloadChemCompProvider implements ChemCompProvider {
 
 	public static final String CHEM_COMP_CACHE_DIRECTORY = "chemcomp";
 
-	public static final String SERVER_LOCATION = "http://www.rcsb.org/pdb/files/ligand/";
+	public static final String DEFAULT_SERVER_URL = "http://files.rcsb.org/ligands/download/";
+	
+	public static String serverBaseUrl = DEFAULT_SERVER_URL;
+	
+	/**
+	 * Use default RCSB server layout (true) or internal RCSB server layout (false)
+	 */
+	public static boolean useDefaultUrlLayout = true;
 
 
 	private static File path;
@@ -213,7 +224,7 @@ public class DownloadChemCompProvider implements ChemCompProvider {
 
 		try ( PrintWriter pw = new PrintWriter(new GZIPOutputStream(new FileOutputStream(localName))) ) {
 
-			pw.print(contents.toString());
+			pw.print(contents);
 			pw.flush();
 		}
 	}
@@ -353,7 +364,13 @@ public class DownloadChemCompProvider implements ChemCompProvider {
 			logger.error("Could not write to temp directory {} to create the chemical component download temp file", System.getProperty("java.io.tmpdir"));
 			return false;
 		}
-		String u = SERVER_LOCATION + recordName + ".cif";
+		String u;
+		if(useDefaultUrlLayout){
+			u = serverBaseUrl + recordName + ".cif";
+		}
+		else{
+			u = serverBaseUrl + recordName.charAt(0) + "/"  + recordName +"/" + recordName + ".cif";
+		}
 
 		logger.debug("downloading " + u);
 
@@ -362,8 +379,8 @@ public class DownloadChemCompProvider implements ChemCompProvider {
 
 		try {
 			url = new URL(u);
-
-			HttpURLConnection uconn = HTTPConnectionTools.openHttpURLConnection(url);
+			
+			URLConnection uconn = URLConnectionTools.openURLConnection(url);
 
 			try( PrintWriter pw = new PrintWriter(new GZIPOutputStream(new FileOutputStream(newFile)));
 					BufferedReader fileBuffer = new BufferedReader(new InputStreamReader(uconn.getInputStream()));
@@ -376,16 +393,11 @@ public class DownloadChemCompProvider implements ChemCompProvider {
 				}
 
 				pw.flush();
-				// Now we move this across to where it actually wants to be
-				boolean couldRename = newFile.renameTo(new File(localName));
-
-				if (!couldRename) {
-
-					throw new IOException("Could not rename temp file "+newFile.toString()+" to file " + localName);
-				}
-
-				return true;
 			}
+			// Now we move this across to where it actually wants to be
+			Files.move(newFile.toPath(), Paths.get(localName), StandardCopyOption.REPLACE_EXISTING);
+
+			return true;
 		}  catch (IOException e){
 			logger.error("Could not download "+url.toString()+" OR store locally to "+localName+" Error ="+e.getMessage());
 			newFile.delete();
@@ -438,7 +450,7 @@ public class DownloadChemCompProvider implements ChemCompProvider {
 			split();
 		} catch (IOException e) {
 			logger.error("Could not split all chem comp file into individual chemical component files. Error: {}",
-				 e.getMessage());
+					e.getMessage());
 			// no point in reporting time
 			loading.set(false);
 			return;
